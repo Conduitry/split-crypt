@@ -101,6 +101,9 @@ function make_stream_queue() {
 }
 
 async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter, password }) {
+	const added = new Set();
+	const deleted = new Set();
+	const updated = new Set();
 	// READ CRYPT INDEX
 	const info = get_info({ crypt_dir, password });
 	const { keyLength, ivLength } = crypto.getCipherInfo(info.cipher_algorithm);
@@ -109,6 +112,7 @@ async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter, password })
 	// DELETE MISSING FILES
 	for (const [path, { files }] of info.index) {
 		if (!plain_index.has(path)) {
+			deleted.add(path);
 			info.index.delete(path);
 			for (const file of files) {
 				fs.unlinkSync(crypt_dir + '/' + file);
@@ -118,35 +122,48 @@ async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter, password })
 	// UPDATE/ADD FILES
 	const stream_queue = make_stream_queue();
 	for (const [path, { size, hash }] of plain_index) {
-		if (!info.index.has(path) || Buffer.compare(info.index.get(path).hash, hash)) {
-			const key = crypto.randomBytes(keyLength);
-			const iv = crypto.randomBytes(ivLength);
-			if (info.index.has(path)) {
-				for (const file of info.index.get(path).files) {
-					fs.unlinkSync(crypt_dir + '/' + file);
-				}
-			}
-			const files = [];
-			for (let start = 0; start < size; start += info.split_size) {
-				const crypt_filename = crypto.randomUUID();
-				files.push(crypt_filename);
-				const cipher = crypto.createCipheriv(info.cipher_algorithm, key, iv);
-				stream_queue.enqueue(() =>
-					fs
-						.createReadStream(plain_dir + '/' + path, { start, end: Math.min(start + info.split_size - 1, size - 1) })
-						.pipe(cipher)
-						.pipe(fs.createWriteStream(crypt_dir + '/' + crypt_filename)),
-				);
-			}
-			info.index.set(path, { hash, key, iv, files });
+		if (!info.index.has(path)) {
+			added.add(path);
+		} else if (Buffer.compare(info.index.get(path).hash, hash)) {
+			updated.add(path);
+		} else {
+			continue;
 		}
+		const key = crypto.randomBytes(keyLength);
+		const iv = crypto.randomBytes(ivLength);
+		if (info.index.has(path)) {
+			for (const file of info.index.get(path).files) {
+				fs.unlinkSync(crypt_dir + '/' + file);
+			}
+		}
+		const files = [];
+		for (let start = 0; start < size; start += info.split_size) {
+			const crypt_filename = crypto.randomUUID();
+			files.push(crypt_filename);
+			const cipher = crypto.createCipheriv(info.cipher_algorithm, key, iv);
+			stream_queue.enqueue(() =>
+				fs
+					.createReadStream(plain_dir + '/' + path, { start, end: Math.min(start + info.split_size - 1, size - 1) })
+					.pipe(cipher)
+					.pipe(fs.createWriteStream(crypt_dir + '/' + crypt_filename)),
+			);
+		}
+		info.index.set(path, { hash, key, iv, files });
 	}
-	await stream_queue.promise;
+	if (added.size > 0 || updated.size > 0) {
+		await stream_queue.promise;
+	}
 	// WRITE INDEX
-	fs.writeFileSync(crypt_dir + '/-', make_info(info));
+	if (added.size > 0 || deleted.size > 0 || updated.size > 0) {
+		fs.writeFileSync(crypt_dir + '/-', make_info(info));
+	}
+	return { added, deleted, updated };
 }
 
 async function decrypt({ plain: plain_dir, crypt: crypt_dir, filter, password }) {
+	const added = new Set();
+	const deleted = new Set();
+	const updated = new Set();
 	fs.mkdirSync(plain_dir, { recursive: true });
 	// READ CRYPT INDEX
 	const info = get_info({ crypt_dir, password });
@@ -155,27 +172,36 @@ async function decrypt({ plain: plain_dir, crypt: crypt_dir, filter, password })
 	// DELETE MISSING FILES
 	for (const [path] of plain_index) {
 		if (!info.index.has(path)) {
+			deleted.add(path);
 			fs.unlinkSync(plain_dir + '/' + path);
 		}
 	}
 	// UPDATE/ADD FILES
 	const stream_queue = make_stream_queue();
 	for (const [path, { hash, key, iv, files }] of info.index) {
-		if (!plain_index.has(path) || Buffer.compare(plain_index.get(path).hash, hash)) {
-			fs.mkdirSync(plain_dir + '/' + path_.dirname(path), { recursive: true });
-			fs.writeFileSync(plain_dir + '/' + path, Buffer.alloc(0));
-			for (let i = 0; i < files.length; i++) {
-				const decipher = crypto.createDecipheriv(info.cipher_algorithm, key, iv);
-				stream_queue.enqueue(() =>
-					fs
-						.createReadStream(crypt_dir + '/' + files[i])
-						.pipe(decipher)
-						.pipe(fs.createWriteStream(plain_dir + '/' + path, { start: i * info.split_size, flags: 'r+' })),
-				);
-			}
+		if (!plain_index.has(path)) {
+			added.add(path);
+		} else if (Buffer.compare(plain_index.get(path).hash, hash)) {
+			updated.add(path);
+		} else {
+			continue;
+		}
+		fs.mkdirSync(plain_dir + '/' + path_.dirname(path), { recursive: true });
+		fs.writeFileSync(plain_dir + '/' + path, Buffer.alloc(0));
+		for (let i = 0; i < files.length; i++) {
+			const decipher = crypto.createDecipheriv(info.cipher_algorithm, key, iv);
+			stream_queue.enqueue(() =>
+				fs
+					.createReadStream(crypt_dir + '/' + files[i])
+					.pipe(decipher)
+					.pipe(fs.createWriteStream(plain_dir + '/' + path, { start: i * info.split_size, flags: 'r+' })),
+			);
 		}
 	}
-	await stream_queue.promise;
+	if (added.size > 0 || updated.size > 0) {
+		await stream_queue.promise;
+	}
+	return { added, deleted, updated };
 }
 
 module.exports = { init, encrypt, decrypt };
