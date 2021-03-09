@@ -1,6 +1,7 @@
 const CACHE_PATH = __dirname + '/cache';
 const DEFAULT_CIPHER_ALGORITHM = 'aes-256-cbc';
 const DEFAULT_HASH_ALGORITHM = 'sha512';
+const DEFAULT_SPLIT_SIZE = 33554432;
 const HMAC_KEY_LENGTH = 32;
 const RSA_KEY_BITS = 2048;
 const STREAM_CONCURRENCY = 8;
@@ -10,7 +11,7 @@ const fs = require('fs');
 const path_ = require('path');
 const v8 = require('v8');
 
-function init({ crypt: crypt_dir, cipher: cipher_algorithm = DEFAULT_CIPHER_ALGORITHM, hash: hash_algorithm = DEFAULT_HASH_ALGORITHM, split: split_size, passphrase }) {
+function init({ crypt: crypt_dir, cipher: cipher_algorithm = DEFAULT_CIPHER_ALGORITHM, hash: hash_algorithm = DEFAULT_HASH_ALGORITHM, split: split_size = DEFAULT_SPLIT_SIZE, passphrase }) {
 	fs.mkdirSync(crypt_dir, { recursive: true });
 	fs.writeFileSync(crypt_dir + '/!meta.dat', v8.serialize({ cipher_algorithm, hash_algorithm, split_size, hmac_key: crypto.randomBytes(HMAC_KEY_LENGTH) }));
 	const pair = crypto.generateKeyPairSync('rsa', { modulusLength: RSA_KEY_BITS });
