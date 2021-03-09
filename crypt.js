@@ -101,7 +101,7 @@ function make_stream_queue() {
 		}
 	}
 	return {
-		enqueue(func) {
+		add(func) {
 			queue.push(func);
 			queueMicrotask(run);
 		},
@@ -122,7 +122,7 @@ async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter }) {
 	const plain_index = await get_plain_index(plain_dir, info.hash_algorithm, filter);
 	// CREATE INDEX OF PLAIN FILES AS THEY WILL APPEAR IN THE CRYPT INDEX
 	const path_hmac_lookup = new Map();
-	for (const [path] of plain_index) {
+	for (const path of plain_index.keys()) {
 		path_hmac_lookup.set(crypto.createHmac(info.hash_algorithm, info.hmac_key).update(path).digest('base64url'), path);
 	}
 	// DELETE INDEXES FOR MISSING FILES
@@ -152,20 +152,20 @@ async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter }) {
 			v8.serialize([hash_hmac, crypto.publicEncrypt(info.public_key, key), crypto.publicEncrypt(info.public_key, iv), Buffer.concat([cipher.update(path), cipher.final()])]),
 		);
 		for (let start = 0; ; start += info.split_size) {
-			try {
-				fs.unlinkSync(crypt_dir + '/' + get_crypt_filename(info, path, start));
-			} catch {
-				break;
+			if (start < size) {
+				stream_queue.add(() =>
+					fs
+						.createReadStream(plain_dir + '/' + path, { start, end: Math.min(start + info.split_size - 1, size - 1) })
+						.pipe(crypto.createCipheriv(info.cipher_algorithm, key, iv))
+						.pipe(fs.createWriteStream(crypt_dir + '/' + get_crypt_filename(info, path, start))),
+				);
+			} else {
+				try {
+					fs.unlinkSync(crypt_dir + '/' + get_crypt_filename(info, path, start));
+				} catch {
+					break;
+				}
 			}
-		}
-		for (let start = 0; start < size; start += info.split_size) {
-			const cipher = crypto.createCipheriv(info.cipher_algorithm, key, iv);
-			stream_queue.enqueue(() =>
-				fs
-					.createReadStream(plain_dir + '/' + path, { start, end: Math.min(start + info.split_size - 1, size - 1) })
-					.pipe(cipher)
-					.pipe(fs.createWriteStream(crypt_dir + '/' + get_crypt_filename(info, path, start))),
-			);
 		}
 	}
 	await stream_queue.done();
@@ -182,7 +182,7 @@ function clean({ crypt: crypt_dir, passphrase }) {
 			crypt_filenames.add(dirent.name);
 		}
 	}
-	// REMOVE ALL FILES REFERRED TO BY AN INDEX
+	// SKIP ALL FILES REFERRED TO BY AN INDEX
 	for (const item of info.index.values()) {
 		const key = crypto.privateDecrypt(info.private_key, item[1]);
 		const iv = crypto.privateDecrypt(info.private_key, item[2]);
@@ -216,7 +216,7 @@ async function decrypt({ plain: plain_dir, crypt: crypt_dir, filter, passphrase 
 	// CREATE INDEX OF PLAIN FILES AS THEY WILL APPEAR IN THE CRYPT INDEX
 	// DELETE MISSING FILES
 	const path_hmac_lookup = new Map();
-	for (const [path] of plain_index) {
+	for (const path of plain_index.keys()) {
 		const path_hmac = crypto.createHmac(info.hash_algorithm, info.hmac_key).update(path).digest('base64url');
 		if (info.index.has(path_hmac)) {
 			path_hmac_lookup.set(path_hmac, path);
@@ -228,11 +228,11 @@ async function decrypt({ plain: plain_dir, crypt: crypt_dir, filter, passphrase 
 	// UPDATE/ADD FILES
 	const stream_queue = make_stream_queue();
 	for (const [path_hmac, item] of info.index) {
-		let target = updated;
+		let target;
 		if (!path_hmac_lookup.has(path_hmac)) {
 			target = added;
 		} else if (
-			!Buffer.compare(
+			Buffer.compare(
 				crypto
 					.createHmac(info.hash_algorithm, info.hmac_key)
 					.update(plain_index.get(path_hmac_lookup.get(path_hmac)).hash)
@@ -240,6 +240,8 @@ async function decrypt({ plain: plain_dir, crypt: crypt_dir, filter, passphrase 
 				item[0],
 			)
 		) {
+			target = updated;
+		} else {
 			continue;
 		}
 		const key = crypto.privateDecrypt(info.private_key, item[1]);
@@ -256,11 +258,10 @@ async function decrypt({ plain: plain_dir, crypt: crypt_dir, filter, passphrase 
 			} catch {
 				break;
 			}
-			const decipher = crypto.createDecipheriv(info.cipher_algorithm, key, iv);
-			stream_queue.enqueue(() =>
+			stream_queue.add(() =>
 				fs
 					.createReadStream(file)
-					.pipe(decipher)
+					.pipe(crypto.createDecipheriv(info.cipher_algorithm, key, iv))
 					.pipe(fs.createWriteStream(plain_dir + '/' + path, { flags: 'r+', start })),
 			);
 		}
