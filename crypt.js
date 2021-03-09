@@ -86,7 +86,7 @@ function make_stream_queue() {
 	let active = 0;
 	let resolve;
 	function run() {
-		if (active === 0 && queue.length === 0) {
+		if (active === 0 && queue.length === 0 && resolve) {
 			resolve();
 		}
 		if (active < STREAM_CONCURRENCY && queue.length > 0) {
@@ -99,12 +99,13 @@ function make_stream_queue() {
 				});
 		}
 	}
-	const promise = new Promise((res) => (resolve = res));
 	return {
-		promise,
 		enqueue(func) {
 			queue.push(func);
 			queueMicrotask(run);
+		},
+		done() {
+			return active === 0 && queue.length === 0 ? Promise.resolve() : new Promise((res) => (resolve = res));
 		},
 	};
 }
@@ -166,9 +167,7 @@ async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter }) {
 			);
 		}
 	}
-	if (added.size > 0 || updated.size > 0) {
-		await stream_queue.promise;
-	}
+	await stream_queue.done();
 	return { added, deleted, updated };
 }
 
@@ -265,9 +264,7 @@ async function decrypt({ plain: plain_dir, crypt: crypt_dir, filter, passphrase 
 			);
 		}
 	}
-	if (added.size > 0 || updated.size > 0) {
-		await stream_queue.promise;
-	}
+	await stream_queue.done();
 	return { added, deleted, updated };
 }
 
