@@ -50,6 +50,7 @@ async function get_plain_index(plain_dir, hash_algorithm, filter) {
 	}
 	const plain_index = new Map();
 	const pending = [plain_dir];
+	const stream_queue = make_stream_queue();
 	while (pending.length) {
 		const dir = pending.shift();
 		for (const name of fs.readdirSync(dir)) {
@@ -61,14 +62,16 @@ async function get_plain_index(plain_dir, hash_algorithm, filter) {
 					if (cache.has(key) && cache.get(key).size === stats.size && cache.get(key).mtimeMs === stats.mtimeMs) {
 						plain_index.set(path.slice(plain_dir.length + 1), { size: stats.size, hash: cache.get(key).hash });
 					} else {
-						const hash = await new Promise((res) => {
-							const hash = crypto.createHash(hash_algorithm);
-							fs.createReadStream(path)
-								.once('end', () => res(hash.digest()))
-								.pipe(hash);
-						});
-						cache.set(key, { size: stats.size, mtimeMs: stats.mtimeMs, hash });
-						plain_index.set(path.slice(plain_dir.length + 1), { size: stats.size, hash });
+						stream_queue.add(() =>
+							fs
+								.createReadStream(path)
+								.pipe(crypto.createHash(hash_algorithm))
+								.once('readable', function () {
+									const hash = this.read();
+									cache.set(key, { size: stats.size, mtimeMs: stats.mtimeMs, hash });
+									plain_index.set(path.slice(plain_dir.length + 1), { size: stats.size, hash });
+								}),
+						);
 					}
 				}
 			} else if (stats.isDirectory()) {
@@ -76,6 +79,7 @@ async function get_plain_index(plain_dir, hash_algorithm, filter) {
 			}
 		}
 	}
+	await stream_queue.done();
 	fs.writeFileSync(CACHE_PATH, v8.serialize(cache));
 	return plain_index;
 }
