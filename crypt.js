@@ -13,23 +13,30 @@ const v8 = require('v8');
 
 function init({ crypt: crypt_dir, cipher: cipher_algorithm = DEFAULT_CIPHER_ALGORITHM, hash: hash_algorithm = DEFAULT_HASH_ALGORITHM, split: split_size = DEFAULT_SPLIT_SIZE, passphrase }) {
 	fs.mkdirSync(crypt_dir, { recursive: true });
-	fs.writeFileSync(crypt_dir + '/!meta.dat', v8.serialize({ cipher_algorithm, hash_algorithm, split_size, hmac_key: crypto.randomBytes(HMAC_KEY_LENGTH) }));
+	fs.writeFileSync(crypt_dir + '/info', cipher_algorithm + '\n' + hash_algorithm + '\n' + split_size + '\n' + crypto.randomBytes(HMAC_KEY_LENGTH).toString('base64url') + '\n');
 	const pair = crypto.generateKeyPairSync('rsa', { modulusLength: RSA_KEY_BITS });
-	fs.writeFileSync(crypt_dir + '/!public.key', pair.publicKey.export({ type: 'spki', format: 'pem' }));
-	fs.writeFileSync(crypt_dir + '/!private.key', pair.privateKey.export({ type: 'pkcs8', format: 'pem', cipher: cipher_algorithm, passphrase }));
+	fs.writeFileSync(crypt_dir + '/public', pair.publicKey.export({ type: 'spki', format: 'pem' }));
+	fs.writeFileSync(crypt_dir + '/private', pair.privateKey.export({ type: 'pkcs8', format: 'pem', cipher: cipher_algorithm, passphrase }));
 }
 
 function get_info(crypt_dir, passphrase) {
-	const info = v8.deserialize(fs.readFileSync(crypt_dir + '/!meta.dat'));
-	info.public_key = crypto.createPublicKey(fs.readFileSync(crypt_dir + '/!public.key'));
+	const s = fs.readFileSync(crypt_dir + '/info', 'ascii').match(/\S+/g);
+	const info = { cipher_algorithm: s[0], hash_algorithm: s[1], split_size: +s[2], hmac_key: Buffer.from(s[3], 'base64url') };
+	info.public_key = crypto.createPublicKey(fs.readFileSync(crypt_dir + '/public'));
 	info.index = new Map();
 	for (const dirent of fs.readdirSync(crypt_dir, { withFileTypes: true })) {
-		if (dirent.isFile() && dirent.name.endsWith('.index')) {
-			info.index.set(dirent.name.slice(0, -6), v8.deserialize(fs.readFileSync(crypt_dir + '/' + dirent.name)));
+		if (dirent.isFile() && dirent.name.endsWith('-index')) {
+			const s = fs.readFileSync(crypt_dir + '/' + dirent.name, 'ascii').match(/\S+/g);
+			info.index.set(dirent.name.slice(0, -6), {
+				hash_hmac: Buffer.from(s[0], 'base64url'),
+				key: Buffer.from(s[1], 'base64url'),
+				iv: Buffer.from(s[2], 'base64url'),
+				path: Buffer.from(s[3], 'base64url'),
+			});
 		}
 	}
 	if (passphrase != null) {
-		info.private_key = crypto.createPrivateKey({ key: fs.readFileSync(crypt_dir + '/!private.key'), passphrase });
+		info.private_key = crypto.createPrivateKey({ key: fs.readFileSync(crypt_dir + '/private'), passphrase });
 	}
 	return info;
 }
@@ -78,7 +85,7 @@ function get_crypt_filename(info, path, start) {
 		crypto
 			.createHmac(info.hash_algorithm, info.hmac_key)
 			.update(path + '@' + start)
-			.digest('base64url') + '.data'
+			.digest('base64url') + '-data'
 	);
 }
 
@@ -128,8 +135,8 @@ async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter }) {
 	// DELETE INDEXES FOR MISSING FILES
 	for (const path_hmac of info.index.keys()) {
 		if (!path_hmac_lookup.has(path_hmac)) {
-			deleted.add(path_hmac + '.index');
-			fs.unlinkSync(crypt_dir + '/' + path_hmac + '.index');
+			deleted.add(path_hmac + '-index');
+			fs.unlinkSync(crypt_dir + '/' + path_hmac + '-index');
 		}
 	}
 	// UPDATE/ADD FILES
@@ -139,7 +146,7 @@ async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter }) {
 		const hash_hmac = crypto.createHmac(info.hash_algorithm, info.hmac_key).update(hash).digest();
 		if (!info.index.has(path_hmac)) {
 			added.add(path);
-		} else if (Buffer.compare(info.index.get(path_hmac)[0], hash_hmac)) {
+		} else if (Buffer.compare(info.index.get(path_hmac).hash_hmac, hash_hmac)) {
 			updated.add(path);
 		} else {
 			continue;
@@ -148,8 +155,15 @@ async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter }) {
 		const iv = crypto.randomBytes(ivLength);
 		const cipher = crypto.createCipheriv(info.cipher_algorithm, key, iv);
 		fs.writeFileSync(
-			crypt_dir + '/' + path_hmac + '.index',
-			v8.serialize([hash_hmac, crypto.publicEncrypt(info.public_key, key), crypto.publicEncrypt(info.public_key, iv), Buffer.concat([cipher.update(path), cipher.final()])]),
+			crypt_dir + '/' + path_hmac + '-index',
+			hash_hmac.toString('base64url') +
+				'\n' +
+				crypto.publicEncrypt(info.public_key, key).toString('base64url') +
+				'\n' +
+				crypto.publicEncrypt(info.public_key, iv).toString('base64url') +
+				'\n' +
+				Buffer.concat([cipher.update(path), cipher.final()]).toString('base64url') +
+				'\n',
 		);
 		for (let start = 0; ; start += info.split_size) {
 			if (start < size) {
@@ -178,16 +192,16 @@ function clean({ crypt: crypt_dir, passphrase }) {
 	// GET CRYPT FILES
 	const crypt_filenames = new Set();
 	for (const dirent of fs.readdirSync(crypt_dir, { withFileTypes: true })) {
-		if (dirent.isFile() && dirent.name.endsWith('.data')) {
+		if (dirent.isFile() && dirent.name.endsWith('-data')) {
 			crypt_filenames.add(dirent.name);
 		}
 	}
 	// SKIP ALL FILES REFERRED TO BY AN INDEX
 	for (const item of info.index.values()) {
-		const key = crypto.privateDecrypt(info.private_key, item[1]);
-		const iv = crypto.privateDecrypt(info.private_key, item[2]);
+		const key = crypto.privateDecrypt(info.private_key, item.key);
+		const iv = crypto.privateDecrypt(info.private_key, item.iv);
 		const decipher = crypto.createDecipheriv(info.cipher_algorithm, key, iv);
-		const path = Buffer.concat([decipher.update(item[3]), decipher.final()]).toString();
+		const path = Buffer.concat([decipher.update(item.path), decipher.final()]).toString();
 		for (let start = 0; ; start += info.split_size) {
 			const crypt_filename = get_crypt_filename(info, path, start);
 			if (crypt_filenames.has(crypt_filename)) {
@@ -237,17 +251,17 @@ async function decrypt({ plain: plain_dir, crypt: crypt_dir, filter, passphrase 
 					.createHmac(info.hash_algorithm, info.hmac_key)
 					.update(plain_index.get(path_hmac_lookup.get(path_hmac)).hash)
 					.digest(),
-				item[0],
+				item.hash_hmac,
 			)
 		) {
 			target = updated;
 		} else {
 			continue;
 		}
-		const key = crypto.privateDecrypt(info.private_key, item[1]);
-		const iv = crypto.privateDecrypt(info.private_key, item[2]);
+		const key = crypto.privateDecrypt(info.private_key, item.key);
+		const iv = crypto.privateDecrypt(info.private_key, item.iv);
 		const decipher = crypto.createDecipheriv(info.cipher_algorithm, key, iv);
-		const path = Buffer.concat([decipher.update(item[3]), decipher.final()]).toString();
+		const path = Buffer.concat([decipher.update(item.path), decipher.final()]).toString();
 		target.add(path);
 		fs.mkdirSync(plain_dir + '/' + path_.dirname(path), { recursive: true });
 		fs.writeFileSync(plain_dir + '/' + path, Buffer.alloc(0));
