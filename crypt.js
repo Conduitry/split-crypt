@@ -11,19 +11,43 @@ const fs = require('fs');
 const path_ = require('path');
 const v8 = require('v8');
 
-function init({ crypt: crypt_dir, cipher: cipher_algorithm = DEFAULT_CIPHER_ALGORITHM, hash: hash_algorithm = DEFAULT_HASH_ALGORITHM, split: split_size = DEFAULT_SPLIT_SIZE, passphrase }) {
+function init({
+	crypt: crypt_dir,
+	cipher: cipher_algorithm = DEFAULT_CIPHER_ALGORITHM,
+	hash: hash_algorithm = DEFAULT_HASH_ALGORITHM,
+	split: split_size = DEFAULT_SPLIT_SIZE,
+	passphrase,
+}) {
 	fs.mkdirSync(crypt_dir, { recursive: true });
-	fs.writeFileSync(crypt_dir + '/info', cipher_algorithm + '\n' + hash_algorithm + '\n' + split_size + '\n' + crypto.randomBytes(HMAC_KEY_LENGTH).toString('base64url') + '\n');
+	fs.writeFileSync(
+		crypt_dir + '/info',
+		cipher_algorithm +
+			'\n' +
+			hash_algorithm +
+			'\n' +
+			split_size +
+			'\n' +
+			crypto.randomBytes(HMAC_KEY_LENGTH).toString('base64url') +
+			'\n',
+	);
 	const pair = crypto.generateKeyPairSync('rsa', { modulusLength: RSA_KEY_BITS });
 	fs.writeFileSync(crypt_dir + '/public', pair.publicKey.export({ type: 'spki', format: 'pem' }));
-	fs.writeFileSync(crypt_dir + '/private', pair.privateKey.export({ type: 'pkcs8', format: 'pem', cipher: cipher_algorithm, passphrase }));
+	fs.writeFileSync(
+		crypt_dir + '/private',
+		pair.privateKey.export({ type: 'pkcs8', format: 'pem', cipher: cipher_algorithm, passphrase }),
+	);
 }
 
 function get_info(crypt_dir, passphrase) {
 	const s = fs.readFileSync(crypt_dir + '/info', 'ascii').match(/\S+/g);
-	const info = { cipher_algorithm: s[0], hash_algorithm: s[1], split_size: +s[2], hmac_key: Buffer.from(s[3], 'base64url') };
-	info.public_key = crypto.createPublicKey(fs.readFileSync(crypt_dir + '/public'));
-	info.index = new Map();
+	const info = {
+		cipher_algorithm: s[0],
+		hash_algorithm: s[1],
+		split_size: +s[2],
+		hmac_key: Buffer.from(s[3], 'base64url'),
+		public_key: crypto.createPublicKey(fs.readFileSync(crypt_dir + '/public')),
+		index: new Map(),
+	};
 	for (const dirent of fs.readdirSync(crypt_dir, { withFileTypes: true })) {
 		if (dirent.isFile() && dirent.name.endsWith('-index')) {
 			const s = fs.readFileSync(crypt_dir + '/' + dirent.name, 'ascii').match(/\S+/g);
@@ -36,7 +60,10 @@ function get_info(crypt_dir, passphrase) {
 		}
 	}
 	if (passphrase != null) {
-		info.private_key = crypto.createPrivateKey({ key: fs.readFileSync(crypt_dir + '/private'), passphrase });
+		info.private_key = crypto.createPrivateKey({
+			key: fs.readFileSync(crypt_dir + '/private'),
+			passphrase,
+		});
 	}
 	return info;
 }
@@ -59,8 +86,15 @@ async function get_plain_index(plain_dir, hash_algorithm, filter) {
 			if (stats.isFile()) {
 				if (!filter || filter(path.slice(plain_dir.length + 1))) {
 					const key = path + ':' + hash_algorithm;
-					if (cache.has(key) && cache.get(key).size === stats.size && cache.get(key).mtimeMs === stats.mtimeMs) {
-						plain_index.set(path.slice(plain_dir.length + 1), { size: stats.size, hash: cache.get(key).hash });
+					if (
+						cache.has(key) &&
+						cache.get(key).size === stats.size &&
+						cache.get(key).mtimeMs === stats.mtimeMs
+					) {
+						plain_index.set(path.slice(plain_dir.length + 1), {
+							size: stats.size,
+							hash: cache.get(key).hash,
+						});
 					} else {
 						stream_queue.add(() =>
 							fs
@@ -117,7 +151,9 @@ function make_stream_queue() {
 			queueMicrotask(run);
 		},
 		done() {
-			return active === 0 && queue.length === 0 ? Promise.resolve() : new Promise((res) => (resolve = res));
+			return active === 0 && queue.length === 0
+				? Promise.resolve()
+				: new Promise((res) => (resolve = res));
 		},
 	};
 }
@@ -134,7 +170,10 @@ async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter }) {
 	// CREATE INDEX OF PLAIN FILES AS THEY WILL APPEAR IN THE CRYPT INDEX
 	const path_hmac_lookup = new Map();
 	for (const path of plain_index.keys()) {
-		path_hmac_lookup.set(crypto.createHmac(info.hash_algorithm, info.hmac_key).update(path).digest('base64url'), path);
+		path_hmac_lookup.set(
+			crypto.createHmac(info.hash_algorithm, info.hmac_key).update(path).digest('base64url'),
+			path,
+		);
 	}
 	// DELETE INDEXES FOR MISSING FILES
 	for (const path_hmac of info.index.keys()) {
@@ -173,7 +212,10 @@ async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter }) {
 			if (start < size) {
 				stream_queue.add(() =>
 					fs
-						.createReadStream(plain_dir + '/' + path, { start, end: Math.min(start + info.split_size - 1, size - 1) })
+						.createReadStream(plain_dir + '/' + path, {
+							start,
+							end: Math.min(start + info.split_size - 1, size - 1),
+						})
 						.pipe(crypto.createCipheriv(info.cipher_algorithm, key, iv))
 						.pipe(fs.createWriteStream(crypt_dir + '/' + get_crypt_filename(info, path, start))),
 				);
@@ -235,7 +277,10 @@ async function decrypt({ plain: plain_dir, crypt: crypt_dir, filter, passphrase 
 	// DELETE MISSING FILES
 	const path_hmac_lookup = new Map();
 	for (const path of plain_index.keys()) {
-		const path_hmac = crypto.createHmac(info.hash_algorithm, info.hmac_key).update(path).digest('base64url');
+		const path_hmac = crypto
+			.createHmac(info.hash_algorithm, info.hmac_key)
+			.update(path)
+			.digest('base64url');
 		if (info.index.has(path_hmac)) {
 			path_hmac_lookup.set(path_hmac, path);
 		} else {
