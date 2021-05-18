@@ -2,10 +2,8 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { cpus } from 'os';
 import { dirname } from 'path';
-import { fileURLToPath } from 'url';
 import { deserialize, serialize } from 'v8';
 
-const cache_path = dirname(fileURLToPath(import.meta.url)) + '/cache';
 const num_processors = cpus().length;
 
 export function init({
@@ -67,7 +65,7 @@ function get_info(crypt_dir, passphrase) {
 	return info;
 }
 
-async function get_plain_index(plain_dir, hash_algorithm, filter) {
+async function get_plain_index(plain_dir, hash_algorithm, filter, cache_path) {
 	let cache;
 	try {
 		cache = deserialize(fs.readFileSync(cache_path));
@@ -157,7 +155,7 @@ function make_stream_queue() {
 	};
 }
 
-export async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter }) {
+export async function encrypt({ plain: plain_dir, crypt: crypt_dir, cache: cache_path, filter }) {
 	const added = new Set();
 	const deleted = new Set();
 	const updated = new Set();
@@ -165,7 +163,7 @@ export async function encrypt({ plain: plain_dir, crypt: crypt_dir, filter }) {
 	const info = get_info(crypt_dir);
 	const { keyLength, ivLength } = crypto.getCipherInfo(info.cipher_algorithm);
 	// CONSTRUCT PLAIN INDEX
-	const plain_index = await get_plain_index(plain_dir, info.hash_algorithm, filter);
+	const plain_index = await get_plain_index(plain_dir, info.hash_algorithm, filter, cache_path);
 	// CREATE INDEX OF PLAIN FILES AS THEY WILL APPEAR IN THE CRYPT INDEX
 	const path_hmac_lookup = new Map();
 	for (const path of plain_index.keys()) {
@@ -263,7 +261,7 @@ export function clean({ crypt: crypt_dir, passphrase }) {
 	return { deleted: crypt_filenames };
 }
 
-export async function decrypt({ plain: plain_dir, crypt: crypt_dir, filter, passphrase }) {
+export async function decrypt({ crypt: crypt_dir, plain: plain_dir, cache: cache_path, filter, passphrase }) {
 	const added = new Set();
 	const deleted = new Set();
 	const updated = new Set();
@@ -271,7 +269,7 @@ export async function decrypt({ plain: plain_dir, crypt: crypt_dir, filter, pass
 	// READ CRYPT INDEX
 	const info = get_info(crypt_dir, passphrase);
 	// CONSTRUCT PLAIN INDEX
-	const plain_index = await get_plain_index(plain_dir, info.hash_algorithm, filter);
+	const plain_index = await get_plain_index(plain_dir, info.hash_algorithm, filter, cache_path);
 	// CREATE INDEX OF PLAIN FILES AS THEY WILL APPEAR IN THE CRYPT INDEX
 	// DELETE MISSING FILES
 	const path_hmac_lookup = new Map();
