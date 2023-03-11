@@ -57,12 +57,20 @@ import { encrypt } from './crypt.js';
 
 const response = await encrypt({
 	plain: '/path/to/plain/directory',
-	filter: (path) => some_logic(path),
 	crypt: '/path/to/encrypted/directory',
+	cache: '/path/to/cache/file',
+	filter: (path) => some_logic(path),
 });
 
 console.log(response);
 ```
+
+`encrypt` expects to be passed:
+
+- `plain` - the directory containing the original, unencrypted files
+- `crypt` - the directory containing the encrypted file store to update
+- `cache` - the path of the file to maintain various hash information
+- `filter` (optional) - a function that is passed a path (the portion after `plain`) and returns whether the given file should be included in the encrypted file store
 
 ### Updating decrypted file store with new and changed files
 
@@ -72,13 +80,22 @@ import { get_pass } from './pass.js';
 
 const response = await decrypt({
 	crypt: '/path/to/encrypted/directory',
-	filter: (path) => some_logic(path),
 	plain: '/path/to/decrypted/directory',
+	cache: '/path/to/cache/file',
+	filter: (path) => some_logic(path),
 	passphrase: await get_pass('Enter passphrase: '),
 });
 
 console.log(response);
 ```
+
+`decrypt` expects to be passed:
+
+- `crypt` - the directory containing the encrypted file store to decrypt
+- `plain` - the destination directory for the decrypted files
+- `cache` - the path of the file to maintain various hash information
+- `filter` (optional) - a function that is passed a path (the portion after `plain`) and returns whether the given file should be decrypted from the encrypted file store, including whether it should be deleted if it does not exist in the store
+- `passphrase` - the passphrase for the private key
 
 ### Cleaning unused data files in an encrypted file store
 
@@ -93,6 +110,11 @@ const response = await clean({
 
 console.log(response);
 ```
+
+`clean` expects to be passed:
+
+- `crypt` - the directory containing the encrypted file store to clean
+- `passphrase` - the passphrase for the private key
 
 ## License
 
