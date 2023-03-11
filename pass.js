@@ -1,5 +1,5 @@
-import { createInterface } from 'readline';
-import { Writable } from 'stream';
+import { createInterface } from 'node:readline';
+import { Writable } from 'node:stream';
 
 const devnull = new Writable({ write: (chunk, encoding, cb) => cb() });
 
