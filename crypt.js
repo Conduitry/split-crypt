@@ -83,11 +83,7 @@ async function get_plain_index(plain_dir, hash_algorithm, filter, cache_path) {
 			if (stats.isFile()) {
 				if (!filter || filter(path.slice(plain_dir.length + 1))) {
 					const key = path + ':' + hash_algorithm;
-					if (
-						cache.has(key) &&
-						cache.get(key).size === stats.size &&
-						cache.get(key).mtimeMs === stats.mtimeMs
-					) {
+					if (cache.has(key) && cache.get(key).size === stats.size && cache.get(key).mtimeMs === stats.mtimeMs) {
 						plain_index.set(path.slice(plain_dir.length + 1), {
 							size: stats.size,
 							hash: cache.get(key).hash,
@@ -148,9 +144,7 @@ function make_stream_queue() {
 			queueMicrotask(run);
 		},
 		done() {
-			return active === 0 && queue.length === 0
-				? Promise.resolve()
-				: new Promise((res) => (resolve = res));
+			return active === 0 && queue.length === 0 ? Promise.resolve() : new Promise((res) => (resolve = res));
 		},
 	};
 }
@@ -167,10 +161,7 @@ export async function encrypt({ plain: plain_dir, crypt: crypt_dir, cache: cache
 	// CREATE INDEX OF PLAIN FILES AS THEY WILL APPEAR IN THE CRYPT INDEX
 	const path_hmac_lookup = new Map();
 	for (const path of plain_index.keys()) {
-		path_hmac_lookup.set(
-			crypto.createHmac(info.hash_algorithm, info.hmac_key).update(path).digest('base64url'),
-			path,
-		);
+		path_hmac_lookup.set(crypto.createHmac(info.hash_algorithm, info.hmac_key).update(path).digest('base64url'), path);
 	}
 	// DELETE INDEXES FOR MISSING FILES
 	for (const path_hmac of info.index.keys()) {
@@ -274,10 +265,7 @@ export async function decrypt({ crypt: crypt_dir, plain: plain_dir, cache: cache
 	// DELETE MISSING FILES
 	const path_hmac_lookup = new Map();
 	for (const path of plain_index.keys()) {
-		const path_hmac = crypto
-			.createHmac(info.hash_algorithm, info.hmac_key)
-			.update(path)
-			.digest('base64url');
+		const path_hmac = crypto.createHmac(info.hash_algorithm, info.hmac_key).update(path).digest('base64url');
 		if (info.index.has(path_hmac)) {
 			path_hmac_lookup.set(path_hmac, path);
 		} else {
