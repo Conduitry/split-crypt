@@ -1,19 +1,18 @@
 #!/bin/env node
-import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { encrypt, decrypt, clean } from './crypt.js';
 import { get_pass } from './pass.js';
 
-const get_config = () => {
+const get_config = async () => {
 	do {
 		for (const ext of ['js', 'mjs', 'cjs']) {
 			const file = 'split-crypt.config.' + ext;
-			if (existsSync(file)) {
-				return import(process.cwd() + '/' + file);
-			}
+			try {
+				return await import(process.cwd() + '/' + file);
+			} catch {}
 		}
 	} while (process.cwd() !== (process.chdir('..'), process.cwd()));
-	console.log('split-crypt.config.[c|m]js not found');
+	console.log('split-crypt.config.[c|m]js not found or could not be loaded');
 	process.exit(1);
 };
 
