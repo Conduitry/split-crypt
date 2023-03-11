@@ -8,7 +8,16 @@ const get_config = async () => {
 		for (const ext of ['js', 'mjs', 'cjs']) {
 			const file = 'split-crypt.config.' + ext;
 			try {
-				return await import(process.cwd() + '/' + file);
+				const config = await import(process.cwd() + '/' + file);
+				if (
+					typeof config.plain !== 'string' ||
+					(config.filter && typeof config.filter !== 'function') ||
+					typeof config.cache !== 'string'
+				) {
+					console.log(`Invalid configuration shape in ${process.cwd()}/${file}`);
+					process.exit(1);
+				}
+				return config;
 			} catch {}
 		}
 	} while (process.cwd() !== (process.chdir('..'), process.cwd()));
