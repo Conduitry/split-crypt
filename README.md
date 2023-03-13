@@ -69,7 +69,7 @@ console.log(response);
 
 - `plain` - the directory containing the original, unencrypted files
 - `crypt` - the directory containing the encrypted file store to update
-- `cache` - the path of the file to maintain various hash information
+- `cache` (optional) - the path of the file to maintain various hash information
 - `filter` (optional) - a function that is passed a path (the portion after `plain`) and returns whether the given file should be included in the encrypted file store
 - `passphrase` (optional) - if passed, also delete unused `-data` files and reuse symmetric encryption parameters on renamed input files so the resultant encrypted files are also effectively renamed
 
@@ -94,7 +94,7 @@ console.log(response);
 
 - `crypt` - the directory containing the encrypted file store to decrypt
 - `plain` - the destination directory for the decrypted files
-- `cache` - the path of the file to maintain various hash information
+- `cache` (optional) - the path of the file to maintain various hash information
 - `filter` (optional) - a function that is passed a path (the portion after `plain`) and returns whether the given file should be decrypted from the encrypted file store, including whether it should be deleted if it does not exist in the store
 - `passphrase` - the passphrase for the private key
 

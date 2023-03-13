@@ -12,7 +12,7 @@ const get_config = async () => {
 				if (
 					typeof config.plain !== 'string' ||
 					(config.filter && typeof config.filter !== 'function') ||
-					typeof config.cache !== 'string'
+					(config.cache && typeof config.cache !== 'string')
 				) {
 					console.log(`Invalid configuration shape in ${process.cwd()}/${file}`);
 					process.exit(1);

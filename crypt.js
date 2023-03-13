@@ -66,11 +66,11 @@ function get_info(crypt_dir, passphrase) {
 }
 
 async function get_plain_index(plain_dir, hash_algorithm, filter, cache_path) {
-	let cache;
-	try {
-		cache = deserialize(fs.readFileSync(cache_path));
-	} catch {
-		cache = new Map();
+	let cache = new Map();
+	if (cache_path) {
+		try {
+			cache = deserialize(fs.readFileSync(cache_path));
+		} catch {}
 	}
 	const plain_index = new Map();
 	const pending = [plain_dir];
@@ -107,7 +107,9 @@ async function get_plain_index(plain_dir, hash_algorithm, filter, cache_path) {
 		}
 	}
 	await stream_queue.done();
-	fs.writeFileSync(cache_path, serialize(cache));
+	if (cache_path) {
+		fs.writeFileSync(cache_path, serialize(cache));
+	}
 	return plain_index;
 }
 
