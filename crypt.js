@@ -149,12 +149,12 @@ function make_stream_queue() {
 	};
 }
 
-export async function encrypt({ plain: plain_dir, crypt: crypt_dir, cache: cache_path, filter }) {
+export async function encrypt({ plain: plain_dir, crypt: crypt_dir, cache: cache_path, filter, passphrase }) {
 	const added = new Set();
 	const deleted = new Set();
 	const updated = new Set();
 	// READ CRYPT INDEX
-	const info = get_info(crypt_dir);
+	const info = get_info(crypt_dir, passphrase);
 	const { keyLength, ivLength } = crypto.getCipherInfo(info.cipher_algorithm);
 	// CONSTRUCT PLAIN INDEX
 	const plain_index = await get_plain_index(plain_dir, info.hash_algorithm, filter, cache_path);
@@ -164,10 +164,25 @@ export async function encrypt({ plain: plain_dir, crypt: crypt_dir, cache: cache
 		path_hmac_lookup.set(crypto.createHmac(info.hash_algorithm, info.hmac_key).update(path).digest('base64url'), path);
 	}
 	// DELETE INDEXES FOR MISSING FILES
-	for (const path_hmac of info.index.keys()) {
+	for (const [path_hmac, item] of info.index) {
 		if (!path_hmac_lookup.has(path_hmac)) {
 			deleted.add(path_hmac + '-index');
 			fs.unlinkSync(crypt_dir + '/' + path_hmac + '-index');
+			if (info.private_key) {
+				const key = crypto.privateDecrypt(info.private_key, item.key);
+				const iv = crypto.privateDecrypt(info.private_key, item.iv);
+				const decipher = crypto.createDecipheriv(info.cipher_algorithm, key, iv);
+				const path = Buffer.concat([decipher.update(item.path), decipher.final()]).toString();
+				for (let start = 0; ; start += info.split_size) {
+					const crypt_filename = get_crypt_filename(info, path, start);
+					try {
+						fs.unlinkSync(crypt_dir + '/' + crypt_filename);
+						deleted.add(crypt_filename);
+					} catch {
+						break;
+					}
+				}
+			}
 		}
 	}
 	// UPDATE/ADD FILES
@@ -182,8 +197,17 @@ export async function encrypt({ plain: plain_dir, crypt: crypt_dir, cache: cache
 		} else {
 			continue;
 		}
-		const key = crypto.randomBytes(keyLength);
-		const iv = crypto.randomBytes(ivLength);
+		let key = crypto.randomBytes(keyLength);
+		let iv = crypto.randomBytes(ivLength);
+		if (info.private_key) {
+			for (const item of info.index.values()) {
+				if (Buffer.compare(item.hash_hmac, hash_hmac) === 0) {
+					key = crypto.privateDecrypt(info.private_key, item.key);
+					iv = crypto.privateDecrypt(info.private_key, item.iv);
+					break;
+				}
+			}
+		}
 		const cipher = crypto.createCipheriv(info.cipher_algorithm, key, iv);
 		fs.writeFileSync(
 			crypt_dir + '/' + path_hmac + '-index',
