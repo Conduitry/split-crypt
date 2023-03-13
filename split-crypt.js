@@ -1,7 +1,21 @@
 #!/bin/env node
+import { accessSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { encrypt, decrypt, clean } from './crypt.js';
 import { get_pass } from './pass.js';
+
+const find_store = () => {
+	do {
+		try {
+			accessSync('info');
+			accessSync('public');
+			accessSync('private');
+			return;
+		} catch {}
+	} while (process.cwd() !== (process.chdir('..'), process.cwd()));
+	console.log('Encrypted file store could not be found');
+	process.exit(1);
+};
 
 const get_config = async () => {
 	do {
@@ -36,6 +50,7 @@ const display_results = (results) => {
 };
 
 if (process.argv[2] === 'e') {
+	find_store();
 	const config = await get_config();
 	display_results(
 		await encrypt({
@@ -46,6 +61,7 @@ if (process.argv[2] === 'e') {
 		}),
 	);
 } else if (process.argv[2] === 'r') {
+	find_store();
 	const config = await get_config();
 	display_results(
 		await encrypt({
@@ -58,6 +74,7 @@ if (process.argv[2] === 'e') {
 	);
 } else if (process.argv[2] === 'd' && process.argv[3]) {
 	const plain = resolve(process.argv[3]);
+	find_store();
 	const config = await get_config();
 	display_results(
 		await decrypt({
@@ -69,7 +86,7 @@ if (process.argv[2] === 'e') {
 		}),
 	);
 } else if (process.argv[2] === 'c') {
-	await get_config();
+	find_store();
 	display_results(
 		await clean({
 			crypt: process.cwd(),
