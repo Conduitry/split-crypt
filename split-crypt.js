@@ -36,18 +36,22 @@ const display_results = (results) => {
 };
 
 if (process.argv[2] === 'e' || process.argv[2] === 'r') {
+	let plain = process.argv[3] && resolve(process.argv[3]);
 	find_store();
 	const config = await get_config();
-	if (typeof config?.plain !== 'string') {
-		console.log('`plain` must be specified in split-crypt.config.[c|m]js');
-		process.exit(1);
+	if (!plain) {
+		if (typeof config?.plain !== 'string') {
+			console.log('`plain` must be specified in split-crypt.config.[c|m]js if source is not given on command line');
+			process.exit(1);
+		}
+		plain = config.plain;
 	}
 	display_results(
 		await encrypt({
 			crypt: process.cwd(),
-			plain: config.plain,
-			cache: config.cache,
-			filter: config.filter,
+			plain,
+			cache: config?.cache,
+			filter: config?.filter,
 			passphrase: process.argv[2] === 'r' ? await get_pass('Enter passphrase: ') : null,
 		}),
 	);
@@ -74,9 +78,9 @@ if (process.argv[2] === 'e' || process.argv[2] === 'r') {
 	);
 } else {
 	console.log(`Usage:
-  split-crypt.js e
+  split-crypt.js e [source]
     Encrypt (does not require passphrase)
-  split-crypt.js r
+  split-crypt.js r [source]
     Encrypt, delete unused -data files, support renamed files
   split-crypt.js d <target>
     Decrypt to target directory
