@@ -18,25 +18,11 @@ const find_store = () => {
 };
 
 const get_config = async () => {
-	do {
-		for (const ext of ['js', 'mjs', 'cjs']) {
-			const file = 'split-crypt.config.' + ext;
-			try {
-				const config = await import(process.cwd() + '/' + file);
-				if (
-					typeof config.plain !== 'string' ||
-					(config.filter && typeof config.filter !== 'function') ||
-					(config.cache && typeof config.cache !== 'string')
-				) {
-					console.log(`Invalid configuration shape in ${process.cwd()}/${file}`);
-					process.exit(1);
-				}
-				return config;
-			} catch {}
-		}
-	} while (process.cwd() !== (process.chdir('..'), process.cwd()));
-	console.log('split-crypt.config.[c|m]js not found or could not be loaded');
-	process.exit(1);
+	for (const ext of ['js', 'mjs', 'cjs']) {
+		try {
+			return await import(process.cwd() + '/split-crypt.config.' + ext);
+		} catch {}
+	}
 };
 
 const display_results = (results) => {
@@ -49,27 +35,20 @@ const display_results = (results) => {
 	}
 };
 
-if (process.argv[2] === 'e') {
+if (process.argv[2] === 'e' || process.argv[2] === 'r') {
 	find_store();
 	const config = await get_config();
+	if (typeof config?.plain !== 'string') {
+		console.log('`plain` must be specified in split-crypt.config.[c|m]js');
+		process.exit(1);
+	}
 	display_results(
 		await encrypt({
 			crypt: process.cwd(),
 			plain: config.plain,
 			cache: config.cache,
 			filter: config.filter,
-		}),
-	);
-} else if (process.argv[2] === 'r') {
-	find_store();
-	const config = await get_config();
-	display_results(
-		await encrypt({
-			crypt: process.cwd(),
-			plain: config.plain,
-			cache: config.cache,
-			filter: config.filter,
-			passphrase: await get_pass('Enter passphrase: '),
+			passphrase: process.argv[2] === 'r' ? await get_pass('Enter passphrase: ') : null,
 		}),
 	);
 } else if (process.argv[2] === 'd' && process.argv[3]) {
@@ -80,8 +59,8 @@ if (process.argv[2] === 'e') {
 		await decrypt({
 			crypt: process.cwd(),
 			plain,
-			cache: config.cache,
-			filter: config.filter,
+			cache: config?.cache,
+			filter: config?.filter,
 			passphrase: await get_pass('Enter passphrase: '),
 		}),
 	);
