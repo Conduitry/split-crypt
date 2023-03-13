@@ -45,6 +45,17 @@ if (process.argv[2] === 'e') {
 			filter: config.filter,
 		}),
 	);
+} else if (process.argv[2] === 'r') {
+	const config = await get_config();
+	display_results(
+		await encrypt({
+			crypt: process.cwd(),
+			plain: config.plain,
+			cache: config.cache,
+			filter: config.filter,
+			passphrase: await get_pass('Enter passphrase: '),
+		}),
+	);
 } else if (process.argv[2] === 'd' && process.argv[3]) {
 	const plain = resolve(process.argv[3]);
 	const config = await get_config();
@@ -68,11 +79,13 @@ if (process.argv[2] === 'e') {
 } else {
 	console.log(`Usage:
   split-crypt.js e
-    Encrypt
+    Encrypt (does not require passphrase)
+  split-crypt.js r
+    Encrypt, delete unused -data files, support renamed files
   split-crypt.js d <target>
-    Decrypt
+    Decrypt to target directory
   split-crypt.js c
-    Clean
+    Clean unused -data files
 `);
 	process.exit(1);
 }
