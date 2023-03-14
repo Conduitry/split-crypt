@@ -1,6 +1,21 @@
 import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
 
+export function get_string(prompt) {
+	process.stdout.write(prompt);
+	return new Promise((res, rej) => {
+		const rl = createInterface({ input: process.stdin, output: process.stdout })
+			.once('line', (line) => {
+				res(line);
+				rl.close();
+			})
+			.once('close', () => {
+				process.stdout.write('\n');
+				rej();
+			});
+	});
+}
+
 const devnull = new Writable({ write: (chunk, encoding, cb) => cb() });
 
 export function get_pass(prompt) {

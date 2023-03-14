@@ -1,8 +1,8 @@
 #!/bin/env node
 import { accessSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { encrypt, decrypt, clean } from './crypt.js';
-import { get_pass } from './pass.js';
+import { init, encrypt, decrypt, clean } from './crypt.js';
+import { get_string, get_pass, confirm_pass } from './pass.js';
 
 const find_store = () => {
 	do {
@@ -35,7 +35,15 @@ const display_results = (results) => {
 	}
 };
 
-if (process.argv[2] === 'e' || process.argv[2] === 'r') {
+if (process.argv[2] === 'i') {
+	const cipher = (await get_string('Symmetric cipher (default: aes-256-cbc)? ')) || 'aes-256-cbc';
+	const hash = (await get_string('HMAC hash algorithm (default: sha512)? ')) || 'sha512';
+	const hmac = +(await get_string('Random HMAC key length (default: 32)? ')) || 32;
+	const rsa = +(await get_string('Bits in asymmetric RSA key (default: 2048)? ')) || 2048;
+	const split = +(await get_string('Maximum bytes to split files into (default 33554432)? ')) || 33554432;
+	const passphrase = await confirm_pass('Enter passphrase: ', 'Confirm passphrase: ', 'Passphrases do not match.');
+	await init({ crypt: '.', cipher, hash, hmac, rsa, split, passphrase });
+} else if (process.argv[2] === 'e' || process.argv[2] === 'r') {
 	let plain = process.argv[3] && resolve(process.argv[3]);
 	find_store();
 	const config = await get_config();
@@ -78,6 +86,8 @@ if (process.argv[2] === 'e' || process.argv[2] === 'r') {
 	);
 } else {
 	console.log(`Usage:
+  split-crypt.js i
+    Initialize current directory as encrypted file store
   split-crypt.js e [source]
     Encrypt (does not require passphrase)
   split-crypt.js r [source]
