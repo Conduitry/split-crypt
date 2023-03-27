@@ -1,4 +1,4 @@
-#!/bin/env node
+#!/usr/bin/env node
 import { accessSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { init, encrypt, decrypt, clean } from './crypt.js';
